@@ -28,9 +28,9 @@
 
 | 产物 | 实际结果 |
 | --- | --- |
-| `/tmp/dsh-agent-teams-release-0831-summary.json` | 顶层 8 个指定键、三个渠道、金额为整数分，与独立预期逐项相等。 |
-| `/tmp/dsh-agent-teams-release-0831-report.html` | 离线中文 HTML，净收入卡片、渠道订单数及合计行、退款与取消口径；无外链或脚本。 |
-| `/tmp/dsh-agent-teams-release-0831-review.md` | reviewer 重新读取指定文件复算，记录问题、修复和复核结论。 |
+| `/tmp/projectflow-agent-teams-release-0831-summary.json` | 顶层 8 个指定键、三个渠道、金额为整数分，与独立预期逐项相等。 |
+| `/tmp/projectflow-agent-teams-release-0831-report.html` | 离线中文 HTML，净收入卡片、渠道订单数及合计行、退款与取消口径；无外链或脚本。 |
+| `/tmp/projectflow-agent-teams-release-0831-review.md` | reviewer 重新读取指定文件复算，记录问题、修复和复核结论。 |
 
 10 条订单，排除 1 条取消订单，计入 9 条；gross=93490、discount=6990、
 refund=21500、net=65000 分（**¥650.00**）。渠道净收入为 web=23000、
@@ -86,7 +86,7 @@ work 任务的文字约束不是文件写入沙箱，不应把它当作强制访
 完整检查包含真实 Alpha.2 Connection + HTTP 的认证与生命周期回归，以及发布渠道保护测试。
 GitHub Actions 使用 Node.js 24，在 Linux 上重新构建、检查并发布。
 
-最终本地发布包 `nanmicoder-dsh-agent-teams-0.1.15-alpha.1.tgz` 的 67 个运行时及资源文件，
+最终本地发布包 `dengdengbei-projectflow-agent-teams-0.1.15-alpha.1.tgz` 的 67 个运行时及资源文件，
 与真实业务测试包逐字节一致。使用 Alpha.2 CLI 将最终包安装到 Web profile，确认安装版本为
 0.1.15-alpha.1，50 个安装后的 lib 文件与 tarball 一致。冷启动后打开业务历史会话，
 活动面板恢复 3 名成员、3/3 完成和 DAG，认证 state 接口返回 200。
@@ -97,3 +97,12 @@ CI 在 Linux 上重新构建并发布，不能把这个本地 tarball 哈希当�
 本机 Docker daemon 未启动，**未进行 Docker 运行验证**。真实业务 / UI 结果限定于上述 macOS、
 Alpha.2 和 DeepSeek Flash 组合；没有声称验证 Windows、其他模型供应商、所有旧版本或未来 Alpha。
 Linux CI 构建检查不等同于 Linux 上的真实 API / UI 验收。
+
+## 当前版本发布证据边界（2026-09-04）
+
+本文前面的 `0.1.15-alpha.1`、历史 tarball 和真实业务/UI记录保留为历史 Alpha.2 组合记录，不是当前工作树 `package.json` 版本 `0.1.15` 的完整重新发布证明。当前整改后的证据必须来自当前源码重新构建的 `lib`、主 `pnpm verify`、最终 tarball 和指定 Alpha.2 profile 的安装/冷启动冒烟测试；未重新执行的真实自然语言 Captain、Brownfield 接管、升级/回滚和多进程共享工作区场景不得写成已完成。当前发布建议仍为内部 Alpha / 受控评估，不作一般用户正式上线承诺。
+## P0-4 host user-confirmation capability boundary
+
+Long-lived requirement/design approval and Work Item accept/deliver require a host-issued user-confirmation capability. The plugin rejects forged, cross-session, cross-project, cross-version, payload-hash-mismatched, future-issued, expired and replayed capabilities, and fails closed when no provider is installed. See docs/host-user-confirmation-capability.md for the executable host contract.
+
+The local deterministic capability suite is implementation evidence only. It does not prove that a real Harness UI emitted the event, that the user was authenticated by the host, or that a production token was signed and consumed by the host. Those rows remain NOT PROVEN until the real host evidence bundle is attached.

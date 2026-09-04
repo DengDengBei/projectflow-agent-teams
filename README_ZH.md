@@ -1,26 +1,32 @@
+<h1 align="center">ProjectFlow Agent Teams</h1>
+
+<p align="center">面向长期软件项目的 Software Development Lifecycle Agent Teams。</p>
+
 <p align="right">
   <a href="./README.md">English</a> · <strong>简体中文</strong>
 </p>
 
 <p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="dsh-agent-teams 把一个 DeepSeek Harness 会话变成可协作的多智能体团队">
+  <img src="./assets/readme/hero.svg" width="100%" alt="ProjectFlow Agent Teams 把一个 DeepSeek Harness 会话变成面向软件生命周期的协作团队">
 </p>
 
 <p align="center">
-  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://img.shields.io/badge/%E7%94%B1%20dshfind-%E6%8E%A8%E8%8D%90-FFD700?style=flat-square" alt="由 dshfind 推荐"></a>
-  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?lang=zh" alt="dshfind 评分"></a>
-  <a href="https://dshfind.com/zh/plugins/NanmiCoder/dsh-agent-teams?ref=badge"><img src="https://dshfind.com/api/badge/NanmiCoder/dsh-agent-teams?metric=downloads&amp;lang=zh" alt="dshfind 下载量"></a>
+  <a href="https://dshfind-disabled.invalid/zh/plugins/DengDengBei/projectflow-agent-teams?ref=badge"><img src="https://img.shields.io/badge/%E7%94%B1%20dshfind-%E6%8E%A8%E8%8D%90-FFD700?style=flat-square" alt="由 dshfind 推荐"></a>
+  <a href="https://dshfind-disabled.invalid/zh/plugins/DengDengBei/projectflow-agent-teams?ref=badge"><img src="https://dshfind-disabled.invalid/api/badge/DengDengBei/projectflow-agent-teams?lang=zh" alt="dshfind 评分"></a>
+  <a href="https://dshfind-disabled.invalid/zh/plugins/DengDengBei/projectflow-agent-teams?ref=badge"><img src="https://dshfind-disabled.invalid/api/badge/DengDengBei/projectflow-agent-teams?metric=downloads&amp;lang=zh" alt="dshfind 下载量"></a>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@nanmicoder/dsh-agent-teams"><img src="https://img.shields.io/npm/v/@nanmicoder/dsh-agent-teams?style=flat-square&amp;color=5B4CF0" alt="npm 版本"></a>
+  <a href="https://www.npmjs.com/package/@dengdengbei/projectflow-agent-teams"><img src="https://img.shields.io/npm/v/@dengdengbei/projectflow-agent-teams?style=flat-square&amp;color=5B4CF0" alt="npm 版本"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-0B7285?style=flat-square" alt="MIT 许可证"></a>
   <a href="./cordis.patch.yml"><img src="https://img.shields.io/badge/DSH-Web%20%2B%20Headless-5B4CF0?style=flat-square" alt="DSH Web 与 Headless"></a>
 </p>
 
-## 一句话，拉起一支真正协作的团队
+## 一个目标，一支能把它交付下去的软件团队
 
-`dsh-agent-teams` 让当前 DeepSeek Harness 会话成为队长：创建可续聊的子 Agent、把目标拆成有依赖的任务，并通过直达消息协调成员工作。
+`ProjectFlow Agent Teams` 让 DeepSeek Harness 会话成为长期软件项目的 Captain：澄清需求、保存项目上下文、协调 Agent、执行质量门禁，并输出可追溯的验收证据。
+
+ProjectFlow Agent Teams 是独立维护的二次开发项目，基于原 Agent Teams 能力演进（来源：https://github.com/NanmiCoder/dsh-agent-teams），增加了生命周期工作流、持久化项目上下文、已有代码库接管、重新设计的 UI 与交互，以及发布级验证链。
 
 你只需用自然语言提出目标。插件会提供团队协议、11 个协作工具、持久化状态、自动共享任务调度和实时 Web UI，不需要额外的 Workflow 引擎。
 
@@ -30,7 +36,7 @@
 
 ## 版本更新
 
-[最新版本](https://github.com/NanmiCoder/dsh-agent-teams/releases/latest) [v0.1.15](https://github.com/NanmiCoder/dsh-agent-teams/releases/tag/v0.1.15) 适配 Harness **0.1.2-alpha.2**。旧宿主用户应安装明确兼容的固定插件版本。也可浏览[完整发布历史](https://github.com/NanmiCoder/dsh-agent-teams/releases)；同一份说明随 npm 包发布到 `release-notes/` 目录。
+[最新版本](https://github.com/DengDengBei/projectflow-agent-teams/releases/latest) [v0.1.15](https://github.com/DengDengBei/projectflow-agent-teams/releases/tag/v0.1.15) 面向 Harness **0.1.2-alpha.2**。旧宿主用户应安装明确兼容的固定插件版本。也可浏览[完整发布历史](https://github.com/DengDengBei/projectflow-agent-teams/releases)；同一份说明随 npm 包发布到 `release-notes/` 目录。
 
 ## 为什么需要 AgentTeams？
 
@@ -58,9 +64,9 @@
 | 其他旧 RC / 未更新的源码宿主 | 固定当前已能正常使用的插件版本，不要跟随 `@latest` | 不能推断所有旧宿主都兼容 0.1.14。 |
 | Alpha.1、后续 Alpha 或其他源码提交 | 尚未验证 | 请对齐上面明确验证的宿主版本，或单独验证。 |
 
-**插件默认发行跟进当前已适配的 Harness 开发者预览版：`latest=0.1.15`，对应 Harness Alpha.2。** 宿主版本名里的 Alpha 不要求插件也另走 Alpha 渠道。继续使用旧宿主的用户，应明确安装兼容的固定插件版本，不要跟随 `@latest`。可选 peer dependencies 并不是运行时版本拦截：装得上，不代表不兼容的宿主能加载成功。
+**插件默认发行跟进当前已适配的 Harness 开发者预览版：`latest=0.1.15`，对应 Harness Alpha.2。** 当前发布边界是内部 Alpha / 受控评估，不是面向一般用户的正式生产上线承诺。宿主版本名里的 Alpha 不要求插件也另走 Alpha 渠道。继续使用旧宿主的用户，应明确安装兼容的固定插件版本，不要跟随 `@latest`。可选 peer dependencies 并不是运行时版本拦截：装得上，不代表不兼容的宿主能加载成功。
 
-详见[兼容性记录](./docs/alpha2-compatibility.md)和[真实业务 / UI 验收报告](./docs/alpha2-release-acceptance.md)。
+详见[兼容性记录](./docs/alpha2-compatibility.md)和[有范围的业务 / UI 验收记录](./docs/alpha2-release-acceptance.md)。当前版本的离线构建和回归门禁不能替代完整真实 Harness / 真实模型自然语言 E2E、Brownfield 接管、升级回滚和多进程共享工作区验收。
 
 ### npm：使用 Harness Alpha.2
 
@@ -69,7 +75,7 @@
 ```sh
 npm install --global @deepseek-ai/dsh@0.1.2-alpha.2
 dsh --version
-dsh plugin --profile web add @nanmicoder/dsh-agent-teams@latest
+dsh plugin --profile web add @dengdengbei/projectflow-agent-teams@latest
 ```
 
 如需固定本次插件版本，把 `@latest` 改为 `@0.1.15`。以后更新时，请同时查看发布说明要求的宿主版本。示例针对 `web` profile，其他 profile 请替换为你实际使用的名称。宿主或插件变更后，停止并重启正在运行的 Harness，再刷新浏览器。
@@ -79,7 +85,7 @@ dsh plugin --profile web add @nanmicoder/dsh-agent-teams@latest
 如果仍使用原来的 RC 宿主，**不要安装插件的 `@latest`**。对于 Harness 0.1.0-rc.8，保留或重新安装固定的 0.1.14 插件：
 
 ```sh
-dsh plugin --profile web add @nanmicoder/dsh-agent-teams@0.1.14
+dsh plugin --profile web add @dengdengbei/projectflow-agent-teams@0.1.15
 ```
 
 重启旧宿主并刷新浏览器即可。如果宿主也已升级，则要恢复匹配的旧宿主后再使用 0.1.14；仅回退插件不是受支持的 Alpha.2 组合。版本不匹配不需要删除凭据或 `.agent-teams` 数据。
@@ -89,8 +95,8 @@ dsh plugin --profile web add @nanmicoder/dsh-agent-teams@0.1.14
 ### 从源码构建 Alpha.2 插件
 
 ```sh
-git clone --branch v0.1.15 https://github.com/NanmiCoder/dsh-agent-teams.git
-cd dsh-agent-teams
+git clone --branch v0.1.15 https://github.com/DengDengBei/projectflow-agent-teams.git
+cd projectflow-agent-teams
 pnpm install --frozen-lockfile
 pnpm build
 dsh plugin --profile web add .
@@ -161,12 +167,22 @@ dsh web
 
 完整工具列表、状态模型、Web UI 行为、配置与已知限制见 [docs/usage.md](./docs/usage.md)。
 
+## 长期软件工程项目模式
+
+本 fork 还提供一套独立于单次 AgentTeams 运行的长期项目状态层。初始化项目后，Captain 可以先记录需求、澄清问题和设计，再通过确认门进入实现规划；项目状态保存在工作区的 .agent-project/status.json，团队运行状态仍保存在 .agent-teams，两者不会混为一谈。
+
+项目级工具包括 agent_project_init、agent_project_clarification、agent_project_requirement_update、agent_project_design_update、agent_project_gate、agent_project_work_item_update、agent_project_work_item_sync、agent_project_work_item_accept 和 agent_project_report。其中 implemented_not_accepted → accepted → delivered 必须经过明确的用户验收，Review 失败会进入修复/复审轮次，不会自动伪装成已交付。
+
+在 Web 面板中，项目总览会显示阶段、需求/设计门、Work Item 状态统计、待验收、阻塞、Review/验证失败、待决策、待澄清、风险以及关联团队/进行中执行数。该面板是只读视图；状态变更必须通过项目工具完成。项目路由还会读取关联的 .agent-teams 执行记录，用于显示最新的团队关联和进度投影。
+
+详细的 AI 可读协议、路线图和验收边界见 docs/AI_PROJECT_CHARTER.md、docs/AI_AGENT_RULES.md 和 docs/AI_PROJECT_ROADMAP.md。
+
 ## 插件开发 Skill
 
 仓库同时提供开放 Agent Skills 包 [`dsh-plugin-development`](./skills/dsh-plugin-development/SKILL.md)：
 
 ```sh
-npx skills add NanmiCoder/dsh-agent-teams --skill dsh-plugin-development
+npx skills add DengDengBei/projectflow-agent-teams --skill dsh-plugin-development
 ```
 
 ## 文档
@@ -195,3 +211,8 @@ pnpm verify
 ## 许可证
 
 [MIT](./LICENSE)
+
+
+## 发布证据边界
+
+版本 `0.1.15` 面向 Harness `0.1.2-alpha.2`，当前仅限内部 Alpha / 受控评估。当前版本有 `pnpm typecheck`、`pnpm build` 和 `pnpm verify` 离线门禁，但不宣称已经完成一般用户正式生产资格：真实 Harness 与真实模型自然语言 E2E、深度 Brownfield 接管、升级/迁移/回滚、多进程共享工作区以及广泛平台/模型矩阵仍未验证。历史验收记录不能替代当前工作树中未重新执行的场景证据。
