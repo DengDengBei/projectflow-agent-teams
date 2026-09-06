@@ -14,6 +14,7 @@ const required = [
   ['legacy branch', 'LEGACY AGENTTEAMS MODE'],
   ['project initialization', 'agent_project_init'],
   ['project status/report inspection', 'agent_project_status'],
+  ['plain-language next-step guidance', 'agent_project_next'],
   ['Greenfield/Brownfield discovery', 'Greenfield/Brownfield'],
   ['clarification', 'agent_project_clarification'],
   ['requirements', 'agent_project_requirement_update'],
@@ -40,4 +41,3 @@ for (const needle of ['protocol-driven workflow', 'not an autonomous lifecycle c
   if (!docs.toLowerCase().includes(needle.toLowerCase())) throw new Error('Usage documentation is missing scope statement: ' + needle);
 }
 console.log('captain-project-flow-verify: ' + required.length + ' protocol assertions passed');
-

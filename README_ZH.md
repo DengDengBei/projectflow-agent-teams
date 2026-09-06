@@ -171,7 +171,7 @@ dsh web
 
 本 fork 还提供一套独立于单次 AgentTeams 运行的长期项目状态层。初始化项目后，Captain 可以先记录需求、澄清问题和设计，再通过确认门进入实现规划；项目状态保存在工作区的 .agent-project/status.json，团队运行状态仍保存在 .agent-teams，两者不会混为一谈。
 
-项目级工具包括 agent_project_init、agent_project_clarification、agent_project_requirement_update、agent_project_design_update、agent_project_gate、agent_project_work_item_update、agent_project_work_item_sync、agent_project_work_item_accept 和 agent_project_report。其中 implemented_not_accepted → accepted → delivered 必须经过明确的用户验收，Review 失败会进入修复/复审轮次，不会自动伪装成已交付。
+项目级工具包括 agent_project_init、agent_project_clarification、agent_project_requirement_update、agent_project_design_update、agent_project_gate、agent_project_work_item_update、agent_project_work_item_sync、agent_project_work_item_accept、agent_project_next 和 agent_project_report。其中 implemented_not_accepted → accepted → delivered 必须经过明确的用户验收，Review 失败会进入修复/复审轮次，不会自动伪装成已交付。普通用户不需要记这些工具名；插件应优先用 agent_project_next 把当前工作翻译成一个简单的下一步，例如“回答一个问题”“确认处理方案”“可以开始处理吗？”或“查看结果并确认完成”。
 
 在 Web 面板中，项目总览会显示阶段、需求/设计门、Work Item 状态统计、待验收、阻塞、Review/验证失败、待决策、待澄清、风险以及关联团队/进行中执行数。该面板是只读视图；状态变更必须通过项目工具完成。项目路由还会读取关联的 .agent-teams 执行记录，用于显示最新的团队关联和进度投影。
 
@@ -216,3 +216,20 @@ pnpm verify
 ## 发布证据边界
 
 版本 `0.1.15` 面向 Harness `0.1.2-alpha.2`，当前仅限内部 Alpha / 受控评估。当前版本有 `pnpm typecheck`、`pnpm build` 和 `pnpm verify` 离线门禁，但不宣称已经完成一般用户正式生产资格：真实 Harness 与真实模型自然语言 E2E、深度 Brownfield 接管、升级/迁移/回滚、多进程共享工作区以及广泛平台/模型矩阵仍未验证。历史验收记录不能替代当前工作树中未重新执行的场景证据。
+
+### 安装前甄别旧版 AgentTeams 插件
+
+本项目是 AgentTeams 的二次开发版本，不能和旧版 AgentTeams 插件同时加载。安装前先甄别，避免命令、工具、右侧面板或 Cordis 注入重复注册。
+
+推荐流程：
+
+1. 停止 DSH Web/Host；只刷新浏览器不够。
+2. 记录旧插件包名、版本、安装位置、DSH 注册信息和运行中的 Host 进程。
+3. 备份项目中的 `.agent-teams`、`.agent-project`，以及用户级插件配置、锁文件和自定义 patch；不要把这些目录当缓存删除。
+4. 检查旧插件是否注册 `/agent-teams`、`agent_teams_*`、ProjectFlow 工具或右侧活动面板。发现重复注册时，先卸载或禁用旧插件，只保留 `@dengdengbei/projectflow-agent-teams`。
+5. 卸载后确认旧包和 DSH 注册记录已移除；不要直接覆盖旧目录，也不要在旧 Host 仍运行时安装新插件。
+6. 安装固定版本的 `@dengdengbei/projectflow-agent-teams`，重启 DSH Host，确认命令、工具和面板只来自本插件。
+7. 先在临时项目做 smoke test：命令激活、需求/设计门禁、团队创建、活动面板和人工验收入口；通过后再打开已有项目。
+8. 如果迁移异常，停止并从备份恢复；不要删除或重建 `.agent-teams`、`.agent-project`，也不要为了消除冲突创建同名团队。
+
+主要风险是运行时和持久化状态冲突，而不是普通业务文件覆盖：旧 Host 可能仍把旧插件加载在内存中，重复命令/工具/面板会导致行为不确定，误删状态会破坏项目生命周期记录。迁移完成的最低条件是：单一活动插件、状态已备份、Host 已重启、临时项目 smoke test 通过。

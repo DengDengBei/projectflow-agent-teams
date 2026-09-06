@@ -22,7 +22,7 @@ import {
   type CSSProperties, type PointerEvent as ReactPointerEvent,
 } from 'react'
 import {
-  IconBranchOutline16, IconChevronDownOutline14, IconPanelLeftOutline16,
+  IconBranchOutline16, IconChevronDownOutline14, IconPanelLeftOutline16, IconSearchOutline16,
   IconStopFill16, IconWarningOutline16, Modal,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ModelDirectory, ModelDirectoryResolver } from '@deepseek-ai/dsh-client-ui-model-selection/client'
@@ -240,7 +240,9 @@ function CollapsedBadge({ count, busy, onClick, t }: {
   return (
     <button type="button" className={css.collapsedRail} data-agent-teams-collapsed data-agent-teams-collapsed-rail data-busy={busy} onClick={onClick} aria-label={t('activity.badgeAria', { count })} title={t('activity.title')}>
       <span className={css.collapsedRailIcon}>
-        <span className={css.sidebarSearchIcon} aria-hidden />
+        <span className={css.sidebarSearchIcon} aria-hidden>
+          <IconSearchOutline16 size={16} />
+        </span>
       </span>
     </button>
   )

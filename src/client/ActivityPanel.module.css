@@ -2308,27 +2308,30 @@
 }
 
 .sidebarSearchIcon {
-  position: relative;
-  width: 18px;
-  height: 18px;
+  position: static;
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
   flex: none;
   box-sizing: border-box;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-  opacity: .82;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 0;
+  opacity: 1;
 }
 
+.sidebarSearchIcon::before,
 .sidebarSearchIcon::after {
-  position: absolute;
-  right: -5px;
-  bottom: -3px;
-  width: 7px;
-  height: 1.5px;
-  border-radius: 1px;
-  background: currentColor;
-  content: '';
-  transform: rotate(45deg);
-  transform-origin: left center;
+  display: none;
+  content: none;
+}
+
+.sidebarSearchIcon > svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 /* agent-teams-final-right-rail: Harness-native collapsed rail geometry. */

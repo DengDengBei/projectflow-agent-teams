@@ -210,7 +210,7 @@ try {
   await stat(join(installedRoot, 'lib', 'index.js')); await stat(join(installedRoot, 'lib', 'client.js'))
   evidence.steps.cleanProfileInstall = {
     passed: true,
-    installedRoot: 'clean-profile/node_modules/@nanmicoder/dsh-agent-teams',
+    installedRoot: 'clean-profile/node_modules/@dengdengbei/projectflow-agent-teams',
     explicitRuntimePeerCount: runtimePeerSpecs.length,
   }
   console.log('PASS tarball installed into clean temporary profile')

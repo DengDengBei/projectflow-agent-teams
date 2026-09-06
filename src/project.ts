@@ -69,6 +69,8 @@ export interface ProjectDecisionCapabilityClaims {
 export interface ProjectDecisionCapabilityExecution {
   sessionId: string
   execution: unknown
+  /** Live Captain agent used by the built-in DSH confirmation adapter. */
+  agent?: unknown
 }
 
 /**

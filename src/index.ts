@@ -9,7 +9,7 @@
  * dependencies, wakes members with messages, relays reports, and collects
  * results.
  *
- * Installation (bundle): `dsh plugin --profile <name> add @nanmicoder/dsh-agent-teams`
+ * Installation (bundle): `dsh plugin --profile <name> add @dengdengbei/projectflow-agent-teams`
  * (or a local path). The bundle patch mounts this plugin row into the host
  * composition; the tools register into the shared `tools` registry and the
  * usage section into the global system prompt, so the plugin needs no realm.
@@ -73,7 +73,7 @@ const WEB_SERVER_KEYS = ['webServer', 'httpServer'] as const
 const WORKSPACE_KEYS = ['workspaceRegistry', 'workspace'] as const
 
 export const name = 'agent-teams'
-export const inject = ['tools', 'llm', 'subagents', 'systemPrompt', 'agents']
+export const inject = ['tools', 'llm', 'subagents', 'systemPrompt', 'agents', 'approval']
 
 /** Plugin configuration. */
 export interface Config {
@@ -172,7 +172,7 @@ export function usageSectionText(toolNames: string, profilesText = ''): string {
 8. Quality kinds (requirements, implementation, verification, review, repair, integration) need a contract: non-empty objective and acceptance; implementation/repair also need inScope and verify. Review/requirements can complete only with verdict=pass; needs_revision/reject must fail with findings. The system then opens repair + next review that depend on the successful source, never the failed review. Do not approve your own implementation. create_task no longer silently resumes a halted team - call agent_teams_resume with a reason, or create_task({resume:true, resumeReason}).
 9. ${qualityPlanningPrompt()}
 10. PROJECT MODE SELECTION: classify the request before creating implementation work. Use LONG-LIVED PROJECT MODE when the user asks to build, evolve, maintain, or take over software across iterations, or when an .agent-project context already exists. Use LEGACY AGENTTEAMS MODE only for an explicitly short-lived team/task run with no durable project context. In legacy mode, do not claim that requirements, design approval, acceptance, delivery, or iteration history are project-tracked.
-11. LONG-LIVED PROJECT - START CONTEXT: first call agent_project_status or agent_project_report to check the current project context. If it is absent, call agent_project_init for the current authorized workspace, then read agent_project_status or agent_project_report again. Use the returned Greenfield/Brownfield discovery as the baseline. Next action: either continue to clarification or explain the loaded state. Stop and ask the user if initialization, discovery, or context loading fails; do not start implementation work from an untracked goal.
+11. LONG-LIVED PROJECT - START CONTEXT: first use the read-only agent_project_next guidance to choose one plain-language next step. Use agent_project_status or agent_project_report when detailed project information is needed. If no project context exists, call agent_project_init for the current authorized workspace, then read agent_project_next again. Use the returned Greenfield/Brownfield discovery as the baseline. Next action: either continue to clarification or explain the loaded state. Stop and ask the user if initialization, discovery, or context loading fails; do not start implementation work from an untracked goal.
 12. LONG-LIVED PROJECT - CLARIFY: inspect the discovery and existing context, then call agent_project_clarification(action='ask') for unresolved scope, compatibility, data, security, ownership, or acceptance decisions. Next action: ask the user the recorded questions and persist answers with the clarification tool. Stop and wait when an answer changes the goal or acceptance boundary; do not silently guess or convert an Agent assumption into approval.
 13. LONG-LIVED PROJECT - REQUIREMENTS: call agent_project_requirement_update to write a draft with scope and acceptance criteria. Present the draft to the user. Next action: wait for an explicit user confirmation in a later user turn or an equivalent host-controlled user action, then record status='approved'. Stop before approval if criteria are missing, clarifications remain open, or confirmation is absent. Never infer approval from silence, another agent, or a model judgement.
 14. LONG-LIVED PROJECT - DESIGN AND IMPLEMENTATION GATE: call agent_project_design_update to write a draft linked to the approved requirements, including architecture, boundaries, interfaces, trade-offs, migration, and test strategy. Present it to the user. Next action: after explicit user confirmation, record status='approved' and call agent_project_gate(action="assert_implementation_allowed"). Stop implementation planning if the design is not approved, the gate fails, or the requirements/design versions no longer match.
@@ -294,7 +294,15 @@ export function apply(ctx: Context, config: Config): void {
           res.end()
           return
         }
-        const projects = await Promise.all(workspaceRegistry.list().map(async (workspace) => {
+        const requestedWorkspace = new URL(req.url ?? '/', 'http://localhost').searchParams.get('workspace')?.trim()
+        const registeredWorkspaces = workspaceRegistry.list()
+        const selectedWorkspaces = requestedWorkspace === 'active'
+          // WorkspaceRegistry keeps the newest/current workspace first.
+          ? registeredWorkspaces.slice(0, 1)
+          : requestedWorkspace === null || requestedWorkspace === ''
+            ? registeredWorkspaces
+            : registeredWorkspaces.filter((workspace) => workspace.title === requestedWorkspace || workspace.path === requestedWorkspace)
+        const projects = await Promise.all(selectedWorkspaces.map(async (workspace) => {
           try {
             return await projectWorkspaceSnapshot(workspace.path, workspace.title)
           } catch {

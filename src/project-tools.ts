@@ -4,6 +4,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
+import { randomUUID } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, win32 } from 'node:path'
 import { readTeam } from './state.ts'
@@ -316,6 +317,50 @@ interface ResolvedProjectDecision {
   claims?: ProjectDecisionCapabilityClaims
 }
 
+/** The small subset of DSH's ordinary confirmation service used by ProjectFlow. */
+interface DshApprovalService {
+  request(request: {
+    agent: unknown
+    toolName: string
+    reason?: string
+  }): Promise<'allowed-once' | 'rejected' | 'cancelled' | 'unavailable'>
+}
+
+/** Use DSH's normal confirmation prompt when no custom provider is configured. */
+function createDshApprovalCapabilityProvider(ctx: Context): ProjectDecisionCapabilityProvider | undefined {
+  const approval = (ctx as unknown as { approval?: DshApprovalService }).approval
+  if (approval === undefined) return undefined
+  return {
+    async verify(request, execution) {
+      if (execution.agent === undefined) return undefined
+      const labels: Record<string, string> = {
+        requirement_approve: '确认需求',
+        design_approve: '确认设计',
+        work_item_accept: '确认接受工作项',
+        work_item_deliver: '确认交付工作项',
+      }
+      const outcome = await approval.request({
+        agent: execution.agent,
+        toolName: 'projectflow_decision',
+        reason: 'ProjectFlow 请求' + (labels[request.decisionType] ?? '项目操作') + '，请确认后继续。',
+      })
+      if (outcome !== 'allowed-once') return undefined
+      return {
+        capabilityId: 'dsh-approval-' + randomUUID(),
+        // Internal marker only; not a real account identity or user claim.
+        userId: 'dsh-approval-user',
+        sessionId: request.sessionId,
+        projectId: request.projectId,
+        decisionType: request.decisionType,
+        targetVersion: request.targetVersion,
+        contentHash: request.contentHash,
+        issuedAt: request.now,
+        expiresAt: request.now + 5 * 60 * 1000,
+      }
+    },
+  }
+}
+
 async function projectDecisionOf(
   args: Record<string, unknown>,
   exec: ToolRunContext,
@@ -332,7 +377,7 @@ async function projectDecisionOf(
     throw new Error('Captain session has no stable actor id; project decision rejected')
   }
   if (provider !== undefined) {
-    const claims = await provider.verify(request, { sessionId: agent.id, execution: agent.session })
+    const claims = await provider.verify(request, { sessionId: agent.id, execution: agent.session, agent })
     if (claims === undefined) throw new Error('trusted user confirmation is absent; long-lived project decision is fail-closed')
     const errors = validateProjectDecisionCapability(claims, request, request.now)
     if (errors.length > 0) throw new Error('trusted user confirmation rejected: ' + errors.join('; '))
@@ -440,6 +485,7 @@ export async function projectAcceptanceCheck(
 /** Register project initialization and status tools without touching team state. */
 export function registerProjectTools(ctx: Context, options: ProjectToolsOptions = {}): void {
   const decisionCapabilityProvider = options.decisionCapabilityProvider
+    ?? createDshApprovalCapabilityProvider(ctx)
   ctx.tools.register(defineTool({
     name: 'agent_project_init',
     description: 'Initialize the long-lived software project context for the current workspace. Use this before requirements or implementation work. Detects Greenfield versus Brownfield and persists project status separately from AgentTeams run state.',
@@ -495,6 +541,114 @@ export function registerProjectTools(ctx: Context, options: ProjectToolsOptions 
       if (state === undefined) return jsonObject({ status: 'not_initialized', project_root: root, discovery: await discoverProject(root) })
       const executionLinks = await projectExecutionLinks(root, state)
       return jsonObject({ status: 'ready', ...projectResult(root, state), execution_links: executionLinks, report: projectReportDetails(state, executionLinks) })
+    },
+  }))
+
+  ctx.tools.register(defineTool({
+    name: 'agent_project_next',
+    description: 'Read-only user-facing guidance for the current work. Give one plain-language next step and a safe continuation message; do not change project, team, or task state.',
+    parameters: {
+      project_root: { type: 'string' },
+      team_state_dir: { type: 'string' },
+    },
+    output: {
+      schema: { type: 'object', additionalProperties: true, properties: {} },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    },
+    async execute(args, exec) {
+      const rawArgs = args as Record<string, unknown>
+      const root = projectRootOf(stringValue(rawArgs, 'project_root'), exec)
+      const state = await readProjectState(root, DEFAULT_PROJECT_STATE_DIR)
+      const warning = '请只在这个对话中继续这项工作，不要在其他对话框同时处理。'
+      if (state === undefined) {
+        return jsonObject({
+          status: 'not_initialized',
+          read_only: true,
+          next_step: { title: '开始一项新工作', message: '请告诉我您想完成什么，我会先帮您整理清楚。', requires_confirmation: false },
+          parallel_work_warning: warning,
+        })
+      }
+      const teamStateDir = stringValue(rawArgs, 'team_state_dir') ?? '.agent-teams'
+      const executionLinks = await projectExecutionLinks(root, state, teamStateDir)
+      const counts: Record<string, number> = {}
+      for (const item of state.workItems) counts[item.status] = (counts[item.status] ?? 0) + 1
+      const count = (...statuses: readonly string[]) => statuses.reduce((total, status) => total + (counts[status] ?? 0), 0)
+      const openClarifications = (state.clarifications ?? []).filter((item) => item.status === 'open').length
+      const pendingDecisions = state.decisions.filter((item) => item.status === 'pending').length
+      const invalidLink = executionLinks.some((link) => link.link_status === 'link_invalid')
+      let title = '继续上次工作'
+      let message = '先看看上次做到哪里，再从那里继续。'
+      let requiresConfirmation = false
+      if (invalidLink) {
+        title = '先处理工作安排问题'
+        message = '已经找到原来的处理安排，但有几项工作没有接上。调整前需要您确认。'
+        requiresConfirmation = true
+      } else if (openClarifications > 0 || pendingDecisions > 0) {
+        title = '回答一个问题'
+        message = '还有一个会影响后续处理的问题，需要您回答。'
+        requiresConfirmation = true
+      } else if (state.requirement?.status !== 'approved') {
+        title = '确认要做的内容'
+        message = '先确认这项工作要完成什么，再进入后面的处理。'
+        requiresConfirmation = true
+      } else if (state.design?.status !== 'approved') {
+        title = '确认处理方案'
+        message = '要做的内容已经整理好了，请先确认处理方案。'
+        requiresConfirmation = true
+      } else if (count('failed_review', 'failed_verification') > 0) {
+        title = '修改检查发现的问题'
+        message = '检查发现了问题，需要修改后再检查一次。'
+      } else if (count('blocked', 'waiting_for_user') > 0) {
+        title = '处理当前问题'
+        message = '这项工作暂时无法继续，需要先处理眼前的问题。'
+        requiresConfirmation = true
+      } else if (count('in_progress') > 0) {
+        title = '查看当前进度'
+        message = '这项工作正在处理中，请继续在当前对话中办理。'
+      } else if (count('not_started') > 0) {
+        title = '可以开始处理吗？'
+        message = '准备工作已经完成，确认后就可以开始处理。'
+        requiresConfirmation = true
+      } else if (count('implemented_not_accepted') > 0) {
+        title = '查看结果并确认完成'
+        message = '处理已经完成，请查看结果后决定是否确认完成。'
+        requiresConfirmation = true
+      } else if (count('accepted') > 0) {
+        title = '确认可以交付吗？'
+        message = '这项工作已经确认完成，请决定是否交付。'
+        requiresConfirmation = true
+      } else if (count('delivered', 'completed') > 0) {
+        title = '这项工作已经完成'
+        message = '目前没有必须处理的下一步。'
+      }
+      return jsonObject({
+        status: 'ready',
+        read_only: true,
+        work_name: state.title,
+        next_step: { title, message, requires_confirmation: requiresConfirmation },
+        progress: {
+          total: state.workItems.length,
+          not_started: count('not_started'),
+          in_progress: count('in_progress'),
+          blocked: count('blocked', 'waiting_for_user'),
+          needs_check: count('implemented_not_accepted'),
+          accepted: count('accepted'),
+          completed: count('delivered', 'completed'),
+        },
+        parallel_work_warning: warning,
+        continuation_prompt: [
+          '请继续我上次没有做完的工作。',
+          '',
+          '请先用简单的话告诉我：',
+          '1. 上次已经完成了什么；',
+          '2. 还没有完成什么；',
+          '3. 现在需要我决定哪一件事。',
+          '',
+          '先不要修改内容，也不要重新开始，等我确认后再继续。',
+          '',
+          '请只在这个对话中处理这项工作，不要在其他对话框同时处理同一件事，以免工作记录发生冲突。',
+        ].join('\n'),
+      })
     },
   }))
 
@@ -760,6 +914,7 @@ export function registerProjectTools(ctx: Context, options: ProjectToolsOptions 
       design_id: { type: 'string' },
       team_id: { type: 'string' },
       task_ids: { type: 'array', items: { type: 'string' } },
+      clear_team_link: { type: 'boolean' },
     },
     output: {
       schema: { type: 'object', additionalProperties: true, properties: {} },
@@ -768,41 +923,76 @@ export function registerProjectTools(ctx: Context, options: ProjectToolsOptions 
     async execute(args, exec) {
       const rawArgs = args as Record<string, unknown>
       const root = projectRootOf(stringValue(rawArgs, 'project_root'), exec)
-      const nextStatus = stringValue(rawArgs, 'status') ?? 'not_started'
+      const requestedStatus = stringValue(rawArgs, 'status')
       const allowedStatuses: readonly ProjectWorkItemStatus[] = [
         'not_started', 'in_progress', 'implemented_not_accepted', 'accepted', 'delivered', 'completed',
         'blocked', 'waiting_for_user', 'failed_verification', 'failed_review',
       ]
-      if (!allowedStatuses.includes(nextStatus as ProjectWorkItemStatus)) throw new Error('invalid work item status: ' + nextStatus)
-      if (nextStatus === 'accepted' || nextStatus === 'delivered') throw new Error('use agent_project_work_item_accept for the human acceptance boundary')
+      if (requestedStatus !== undefined && !allowedStatuses.includes(requestedStatus as ProjectWorkItemStatus)) throw new Error('invalid work item status: ' + requestedStatus)
+      if (requestedStatus === 'accepted' || requestedStatus === 'delivered') throw new Error('use agent_project_work_item_accept for the human acceptance boundary')
       const requirementId = stringValue(rawArgs, 'requirement_id')
       const designId = stringValue(rawArgs, 'design_id')
-      const teamId = stringValue(rawArgs, 'team_id')
+      const clearTeamLink = rawArgs.clear_team_link === true
+      if (clearTeamLink && rawArgs.team_id !== undefined
+        && (typeof rawArgs.team_id !== 'string' || rawArgs.team_id.trim() !== '')) {
+        throw new Error('clear_team_link cannot be combined with a non-empty team_id')
+      }
+      // Distinguish an omitted team_id from an explicitly empty one. The
+      // latter is the safe repair path for a stale AgentTeams link.
+      const teamId = clearTeamLink ? '' : (() => {
+        if (!Object.prototype.hasOwnProperty.call(rawArgs, 'team_id')) return undefined
+        const value = rawArgs.team_id
+        if (value === undefined) return undefined
+        if (typeof value !== 'string') throw new Error('team_id must be a string')
+        return value.trim()
+      })()
       const taskIds = rawArgs.task_ids === undefined ? undefined : stringArrayValue(rawArgs, 'task_ids')
       const state = await updateProjectState(root, (current) => {
-        if (['in_progress', 'implemented_not_accepted', 'completed'].includes(nextStatus) && !projectGateSummary(current).canPlanImplementation) {
+        let item = current.workItems.find((candidate) => candidate.id === stringValue(rawArgs, 'id', true))
+        const title = stringValue(rawArgs, 'title', true)!
+        const normalizedTaskIds = taskIds === undefined ? undefined : [...new Set(taskIds)]
+        const isLinkOnlyUpdate = item !== undefined
+          && teamId !== undefined
+          && teamId !== item.teamId
+          && (requestedStatus === undefined || requestedStatus === item.status)
+          && title === item.title
+          && (requirementId === undefined || requirementId === item.requirementId)
+          && (designId === undefined || designId === item.designId)
+          && (normalizedTaskIds === undefined || JSON.stringify(normalizedTaskIds) === JSON.stringify(item.taskIds ?? []))
+        if (isLinkOnlyUpdate) {
+          // A pure link repair preserves the Work Item and changes only teamId.
+          if (teamId === '') delete item!.teamId
+          else item!.teamId = teamId!
+          return current
+        }
+        const nextStatus = requestedStatus ?? item?.status ?? 'not_started'
+        if (!allowedStatuses.includes(nextStatus as ProjectWorkItemStatus)) throw new Error('invalid work item status: ' + nextStatus)
+        if (['in_progress', 'implemented_not_accepted', 'completed'].includes(nextStatus)
+          && !projectGateSummary(current).canPlanImplementation) {
           throw new Error('work item execution requires approved requirements and design')
         }
-        let item = current.workItems.find((candidate) => candidate.id === stringValue(rawArgs, 'id', true))
         if (item === undefined) {
           item = {
             id: stringValue(rawArgs, 'id', true)!,
-            title: stringValue(rawArgs, 'title', true)!,
+            title,
             status: nextStatus as ProjectWorkItemStatus,
             version: 1,
             updatedAt: Date.now(),
           }
           current.workItems.push(item)
         } else {
-          item.title = stringValue(rawArgs, 'title', true)!
+          item.title = title
           item.status = nextStatus as ProjectWorkItemStatus
           item.version = (item.version ?? 1) + 1
           item.updatedAt = Date.now()
         }
         if (requirementId !== undefined) item.requirementId = requirementId
         if (designId !== undefined) item.designId = designId
-        if (teamId !== undefined) item.teamId = teamId
-        if (taskIds !== undefined) item.taskIds = [...new Set(taskIds)]
+        if (teamId !== undefined) {
+          if (teamId === '') delete item.teamId
+          else item.teamId = teamId
+        }
+        if (normalizedTaskIds !== undefined) item.taskIds = normalizedTaskIds
         return current
       })
       return jsonObject({ status: 'updated', ...projectResult(root, state) })

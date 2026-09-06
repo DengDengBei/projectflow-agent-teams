@@ -249,3 +249,20 @@ Use an explicit profile flag: `/agent-teams --profile demo-delivery implement th
 ## Release evidence boundary
 
 Version `0.1.15` targets Harness `0.1.2-alpha.2` and is limited to an internal Alpha / controlled evaluation. The current release has offline `pnpm typecheck`, `pnpm build`, and `pnpm verify` gates, but does not claim completed general production qualification: real-Harness and real-model natural-language E2E, deep Brownfield takeover, upgrade/migration/rollback, multi-process shared-workspace, and broad platform/model coverage remain unverified. The historical acceptance record must not be read as evidence for any unrerun current-worktree scenario.
+
+### Before installing on a machine that previously had AgentTeams
+
+This project is a second-generation AgentTeams implementation and must not be loaded alongside the older AgentTeams plugin. Identify the old plugin first so commands, tools, the activity panel, and Cordis patches are not registered twice.
+
+Recommended procedure:
+
+1. Stop the DSH Web/Host process; refreshing the browser alone is insufficient.
+2. Record the old package name, version, install path, DSH registration, and running Host process.
+3. Back up `.agent-teams`, `.agent-project`, user-level plugin configuration, lockfiles, and custom patches. Do not delete these as cache.
+4. Check whether the old plugin registers `/agent-teams`, `agent_teams_*`, ProjectFlow tools, or the right-side activity panel. If duplicate registrations exist, uninstall or disable the old plugin so only `@dengdengbei/projectflow-agent-teams` remains active.
+5. Verify that the old package and DSH registration are gone. Do not overwrite its directory in place or install the new plugin while the old Host is still running.
+6. Install a pinned version of `@dengdengbei/projectflow-agent-teams`, restart DSH Host, and verify that the command, tools, and panel come only from this plugin.
+7. Run a smoke test in a temporary project: command activation, requirement/design gates, team creation, activity panel, and the human-acceptance entry point. Only then reopen existing projects.
+8. If migration is abnormal, stop and restore the backup. Do not delete or recreate `.agent-teams` or `.agent-project`, and do not create a same-named team to hide a stale link.
+
+The main risk is runtime and durable-state collision, not ordinary business-file overwrite: an old Host may still hold the old plugin in memory, duplicate registrations may produce nondeterministic behavior, and deleting state can break lifecycle history. The minimum safe invariant is one active plugin, backed-up state, a restarted Host, and a passing temporary-project smoke test.

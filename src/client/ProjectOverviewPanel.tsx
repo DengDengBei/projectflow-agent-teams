@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactElement } from 'react'
 import type { AgentTeamsTranslate } from './locales.ts'
+import { deriveProjectWizardAction, projectContinuationPrompt, projectNextStepPrompt, type ProjectWizardActionKind } from './project-wizard.ts'
 import css from './ProjectOverviewPanel.module.css'
 
 interface JsonObject {
@@ -231,8 +232,42 @@ function executionCount(record: ProjectRecord, status?: string): number {
   return record.executionLinks.filter((link) => asString(link.projected_status) === status).length
 }
 
+function wizardText(t: AgentTeamsTranslate, kind: ProjectWizardActionKind): { title: string; detail: string } {
+  switch (kind) {
+    case 'link_invalid': return { title: t('project.action.linkInvalid.title'), detail: t('project.action.linkInvalid.detail') }
+    case 'clarification': return { title: t('project.action.clarification.title'), detail: t('project.action.clarification.detail') }
+    case 'requirement': return { title: t('project.action.requirement.title'), detail: t('project.action.requirement.detail') }
+    case 'design': return { title: t('project.action.design.title'), detail: t('project.action.design.detail') }
+    case 'review': return { title: t('project.action.review.title'), detail: t('project.action.review.detail') }
+    case 'blocked': return { title: t('project.action.blocked.title'), detail: t('project.action.blocked.detail') }
+    case 'progress': return { title: t('project.action.progress.title'), detail: t('project.action.progress.detail') }
+    case 'start': return { title: t('project.action.start.title'), detail: t('project.action.start.detail') }
+    case 'accept': return { title: t('project.action.accept.title'), detail: t('project.action.accept.detail') }
+    case 'deliver': return { title: t('project.action.deliver.title'), detail: t('project.action.deliver.detail') }
+    case 'done': return { title: t('project.action.done.title'), detail: t('project.action.done.detail') }
+    case 'continue': return { title: t('project.action.continue.title'), detail: t('project.action.continue.detail') }
+  }
+}
+
+async function copyText(value: string): Promise<void> {
+  if (navigator.clipboard?.writeText !== undefined) {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = value
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.opacity = '0'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) throw new Error('clipboard unavailable')
+}
+
 async function loadProjects(signal: AbortSignal): Promise<readonly ProjectRecord[]> {
-  const response = await fetch('/plugins/dsh-agent-teams/project', {
+  const response = await fetch('/plugins/dsh-agent-teams/project?workspace=active', {
     cache: 'no-store',
     signal,
   })
@@ -252,9 +287,35 @@ async function loadProjects(signal: AbortSignal): Promise<readonly ProjectRecord
     }))
 }
 
+function projectUpdatedAt(record: ProjectRecord): number {
+  const candidates = [record.status.updatedAt, record.report.updatedAt]
+  for (const value of candidates) {
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return 0
+}
+
+/**
+ * The Web Host project route currently serves every registered workspace.
+ * Until the Host exposes the active workspace to injected clients, keep the
+ * project directory scoped to the current/latest project instead of mixing
+ * unrelated workspaces into the user's panel.
+ */
+function visibleProjects(records: readonly ProjectRecord[]): readonly ProjectRecord[] {
+  if (records.length <= 1) return records
+  const first = records[0]
+  if (first === undefined) return []
+  const latest = records.reduce((current, record) => (
+    projectUpdatedAt(record) > projectUpdatedAt(current) ? record : current
+  ), first)
+  return [latest]
+}
+
 export function ProjectOverviewPanel({ t, embedded = false }: ProjectOverviewPanelProps): ReactElement | null {
   const [projects, setProjects] = useState<readonly ProjectRecord[]>([])
   const [error, setError] = useState(false)
+  const [copiedWorkspace, setCopiedWorkspace] = useState<string | undefined>()
+  const [copiedActionWorkspace, setCopiedActionWorkspace] = useState<string | undefined>()
   const [position, setPosition] = useState<PanelPosition>(readPanelPosition)
   const dragRef = useRef<{ pointerId: number; originX: number; originY: number; startX: number; startY: number } | null>(null)
 
@@ -321,7 +382,23 @@ export function ProjectOverviewPanel({ t, embedded = false }: ProjectOverviewPan
     if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null
   }
 
-  if (projects.length === 0 && !error) return null
+  const copyContinuationPrompt = (record: ProjectRecord, summary: ProjectSummary): void => {
+    const action = deriveProjectWizardAction(summary, record.executionLinks)
+    void copyText(projectContinuationPrompt(record.workspace, summary)).then(() => {
+      setCopiedWorkspace(record.workspace)
+      window.setTimeout(() => setCopiedWorkspace((current) => current === record.workspace ? undefined : current), 1800)
+    }).catch(() => setCopiedWorkspace(undefined))
+  }
+
+  const copyNextStepPrompt = (record: ProjectRecord, action: ProjectWizardActionKind): void => {
+    void copyText(projectNextStepPrompt(action)).then(() => {
+      setCopiedActionWorkspace(record.workspace)
+      window.setTimeout(() => setCopiedActionWorkspace((current) => current === record.workspace ? undefined : current), 1800)
+    }).catch(() => setCopiedActionWorkspace(undefined))
+  }
+
+  const visible = visibleProjects(projects)
+  if (visible.length === 0 && !error) return null
   return (
     <section
       className={embedded ? css.embeddedPanel : css.panel}
@@ -340,20 +417,20 @@ export function ProjectOverviewPanel({ t, embedded = false }: ProjectOverviewPan
         <div>
           <h2 className={css.title}>{t('project.title')}</h2>
         </div>
-        <div className={css.headerActions}>
-          <span className={css.readOnly}>{t('project.readOnly')}</span>
-        </div>
+        <div className={css.headerActions} />
       </header>
       {error && <div className={css.error}>{t('project.refreshError')}</div>}
-      {projects.length === 0 && <div className={css.empty}>{t('project.empty')}</div>}
+      {visible.length === 0 && <div className={css.empty}>{t('project.empty')}</div>}
       <div className={css.projects}>
-        {projects.map((record) => {
+        {visible.map((record) => {
           const summary = summarize(record)
           const active = count(summary, 'in_progress', 'not_started')
           const blocked = count(summary, 'blocked', 'waiting_for_user')
           const review = count(summary, 'failed_review', 'failed_verification')
           const acceptance = count(summary, 'implemented_not_accepted', 'accepted')
           const delivered = count(summary, 'delivered', 'completed')
+          const action = deriveProjectWizardAction(summary, record.executionLinks)
+          const actionText = wizardText(t, action.kind)
           return (
             <article className={css.project} key={record.workspace}>
               <div className={css.projectHeading}>
@@ -368,6 +445,18 @@ export function ProjectOverviewPanel({ t, embedded = false }: ProjectOverviewPan
                 <span>{t('project.acceptance', { count: acceptance })}</span>
                 <span>{t('project.delivered', { count: delivered })}</span>
               </div>
+              <section className={css.guidance} aria-live="polite" data-wizard-action={action.kind}>
+                <div className={css.guidanceLabel}>{t('project.nextStep')}</div>
+                <strong className={css.guidanceTitle}>{actionText.title}</strong>
+                <p className={css.guidanceDetail}>{actionText.detail}</p>
+                <button type="button" className={css.guidanceButton} onClick={() => copyNextStepPrompt(record, action.kind)}>
+                  {copiedActionWorkspace === record.workspace ? t('project.copied') : t('project.copyNextStep')}
+                </button>
+                <button type="button" className={css.guidanceButton} onClick={() => copyContinuationPrompt(record, summary)}>
+                  {copiedWorkspace === record.workspace ? t('project.copied') : t('project.copyContinuation')}
+                </button>
+                <p className={css.singleWindow}>{t('project.singleWindow')}</p>
+              </section>
               <div className={css.gates}>
                 <span>{t('project.requirement', { state: summary.requirement })}</span>
                 <span>{t('project.design', { state: summary.design })}</span>
