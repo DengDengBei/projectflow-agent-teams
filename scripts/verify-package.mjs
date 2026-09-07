@@ -40,6 +40,18 @@ check(
   !pkg.name.startsWith('@') || pkg.publishConfig?.access === 'public',
   'scoped packages default to restricted without publishConfig.access = "public"',
 )
+check(
+  'source installs build generated lib before activation',
+  pkg.scripts?.prepare === 'npm run build',
+  `prepare = ${JSON.stringify(pkg.scripts?.prepare)}`,
+)
+const runtimePeerSpecs = Object.entries(pkg.peerDependencies ?? {})
+  .filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
+check(
+  'runtime peers are pinned to the supported Alpha.4 host',
+  runtimePeerSpecs.every(([, version]) => version === '0.1.2-alpha.4'),
+  `runtime peers = ${JSON.stringify(Object.fromEntries(runtimePeerSpecs))}`,
+)
 const requiredPeers = Object.keys(pkg.peerDependencies ?? {})
   .filter(name => pkg.peerDependenciesMeta?.[name]?.optional !== true)
 check(
