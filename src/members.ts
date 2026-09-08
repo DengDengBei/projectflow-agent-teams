@@ -4,7 +4,8 @@
  *
  * Members are durable continuable subagents of the captain, so a member keeps
  * its conversation across turns and across harness restarts: the captain
- * wakes it with {@link ctx.subagents.followup}, it works through its turn
+ * wakes it with {@link ctx.subagents.sendMessage} (or the legacy
+ * {@link ctx.subagents.followup} fallback), it works through its turn
  * (updating team state through the `agent_teams_*` tools), and becomes idle
  * again. Its final assistant message is not readable programmatically, so the
  * member persists its report into the captain's mailbox and the task records,
@@ -17,7 +18,7 @@ import { installModelSelection, type Agent, type ModelSelection } from '@deepsee
 // Declaration merge only: makes ctx.subagents visible.
 import { foldSubagentDescriptor, SubagentError } from '@deepseek-ai/dsh-subagent'
 import { createUserMessage, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { join } from 'node:path'
 import { acknowledgeMailbox, appendMailbox, CAPTAIN_KEY, createMessage, readRetiredMemberIds, readTeamSync, readTeam, releaseMailboxDelivery, withTeamLock, writeTeam } from './state.ts'
 import { appendTeamEvent, captainSessionOf } from './events.ts'
@@ -87,6 +88,8 @@ export interface MemberLlmSelectionRequest {
 
 /** Process-local bridge between spawn admission and synchronous child setup. */
 export interface MemberSelectionRuntime {
+  /** Whether the host exposes a supported continuable-child lifecycle seam. */
+  readonly compatible: boolean
   /** Make one selection visible while Harness materializes the fresh child. */
   withPending<T>(
     parentSessionId: string,
@@ -125,6 +128,7 @@ export async function validateMemberLlmSelections(
 }
 
 const MEMBER_LABEL_PREFIX = 'agent-teams:'
+type MemberMessageContent = Array<{ type: 'text'; text: string }>
 const FALLBACK_FAILURE_CODES = new Set(['QUOTA', 'RATE_LIMIT', 'AUTH', 'MISSING_CREDENTIAL', 'NO_ADAPTER'])
 
 export function isFallbackFailureCode(code: string): boolean {
@@ -363,20 +367,22 @@ export function installMemberSelectionRuntime(
   onFailureSettled?: (workspace: string, teamId: string, memberName: string) => Promise<void>,
 ): MemberSelectionRuntime {
   const pending = new Map<string, MemberLlmSelection>()
-  ctx.subagents.registerContinuableSetup((childCtx) => {
-    const child = childCtx.agent
-    if (child === undefined) return () => undefined
-    const suffix = child.session.events.slice(child.session.header.seedLength ?? 0)
+  const installForChild = (child: Agent, childCtx: Context): (() => void) | undefined => {
+    const session = child.session as Session & {
+      events?: readonly SessionEvent[]
+      header: Session['header'] & { seedLength?: number }
+    }
+    const suffix = session.events?.slice(session.header.seedLength ?? 0) ?? []
     const descriptor = foldSubagentDescriptor(suffix)
     if (descriptor?.mode !== 'continuable' || !descriptor.label.startsWith(MEMBER_LABEL_PREFIX)) {
-      return () => undefined
+      return undefined
     }
 
     const parentSessionId = child.session.header.parentSession
-    if (parentSessionId === undefined) return () => undefined
+    if (parentSessionId === undefined) return undefined
     const identity = descriptor.label.slice(MEMBER_LABEL_PREFIX.length)
     const separator = identity.indexOf(':')
-    if (separator < 1 || separator === identity.length - 1) return () => undefined
+    if (separator < 1 || separator === identity.length - 1) return undefined
     const teamId = identity.slice(0, separator)
     const memberName = identity.slice(separator + 1)
     const workspace = child.session.header.cwd ?? process.cwd()
@@ -385,7 +391,7 @@ export function installMemberSelectionRuntime(
     let selection = pending.get(key)
     if (selection === undefined) {
       const team = readTeamSync(stateRoot, teamId)
-      if (team?.captainSessionId !== parentSessionId) return () => undefined
+      if (team?.captainSessionId !== parentSessionId) return undefined
       const durableMember = team.members.find(member => member.name === memberName)
       selection = selectionFromMember(durableMember)
       if (selection !== undefined && (descriptor.agentProvider !== durableMember?.provider || descriptor.agentModel !== durableMember?.model)) {
@@ -464,15 +470,49 @@ export function installMemberSelectionRuntime(
       disposeSelection()
       disposeFailure()
     }
-  })
+  }
+
+  const legacySubagents = ctx.subagents as typeof ctx.subagents & {
+    registerContinuableSetup?: (setup: (childCtx: Context) => () => void) => () => void
+    sendMessage?: unknown
+  }
+  let compatible = false
+  if (typeof legacySubagents.registerContinuableSetup === 'function') {
+    legacySubagents.registerContinuableSetup.call(legacySubagents, (childCtx) => {
+      const child = childCtx.agent
+      const dispose = child === undefined ? undefined : installForChild(child, childCtx)
+      return dispose ?? (() => undefined)
+    })
+    compatible = true
+  } else if (typeof ctx.on === 'function' && typeof legacySubagents.sendMessage === 'function') {
+    const disposeCreated = ctx.on('agent/created', ({ agent }) => {
+      const childContext = (agent as Agent & { ctx: Context }).ctx
+      const dispose = installForChild(agent, childContext)
+      if (dispose !== undefined) childContext.effect(() => dispose, 'agent-teams: member runtime')
+    })
+    ctx.effect(() => disposeCreated, 'agent-teams: member creation bridge')
+    compatible = true
+  } else {
+    ctx.logger.warn(
+      'agent-teams: member execution is disabled because this host lacks DeepSeek Harness 0.1.2-alpha.4 ' +
+      'continuable lifecycle API ' +
+      '(agent/created + agent.ctx + subagents.sendMessage)',
+    )
+  }
 
   return {
+    compatible,
     async withPending<T>(
       parentSessionId: string,
       label: string,
       selection: MemberLlmSelection,
       operation: () => Promise<T>,
     ): Promise<T> {
+      if (!compatible) {
+        throw new Error(
+          'agent-teams requires DeepSeek Harness 0.1.2-alpha.4 or a compatible continuable lifecycle API',
+        )
+      }
       const key = pendingSelectionKey(parentSessionId, label)
       if (pending.has(key)) {
         throw new Error(`member model selection is already pending for "${label}"`)
@@ -652,13 +692,24 @@ export async function deliverToMember(
   signal: AbortSignal,
 ): Promise<boolean> {
   try {
-    await ctx.subagents.followup(captain, brandedSessionId(childId), [{ type: 'text', text }], {
-      source: { kind: 'plugin', plugin: 'dsh-agent-teams' },
-      signal,
-    })
+    type MessageContent = MemberMessageContent
+    type SendMessage = (parent: Agent, targetId: SessionId, content: MessageContent, options: { signal: AbortSignal }) => Promise<unknown>
+    type LegacyFollowup = (parent: Agent, targetId: SessionId, content: MessageContent, options: { source: { kind: 'plugin'; plugin: string }; signal: AbortSignal }) => Promise<unknown>
+    const runtime = ctx.subagents as unknown as { sendMessage?: SendMessage; followup?: LegacyFollowup }
+    const content: MessageContent = [{ type: 'text', text }]
+    if (typeof runtime.sendMessage === 'function') {
+      await runtime.sendMessage.call(runtime, captain, brandedSessionId(childId), content, { signal })
+    } else if (typeof runtime.followup === 'function') {
+      await runtime.followup.call(runtime, captain, brandedSessionId(childId), content, {
+        source: { kind: 'plugin', plugin: 'dsh-agent-teams' },
+        signal,
+      })
+    } else {
+      throw new Error('subagent runtime exposes neither sendMessage nor followup')
+    }
     return true
   } catch (error: unknown) {
-    ctx.logger.warn(`agent-teams: followup to member ${childId} failed: ${String(error)}`)
+    ctx.logger.warn(`agent-teams: message delivery to member ${childId} failed: ${String(error)}`)
     return false
   }
 }
@@ -683,7 +734,8 @@ export function interruptMember(ctx: Context, captain: Agent, childId: string): 
  *
  * Upstream `interrupt()` deliberately preserves continuable sessions and the
  * upstream seam exposes no targeted forget/retire method. The durable
- * AgentTeams index therefore rejects `followup()` before it can cold-resume a
+ * AgentTeams index therefore rejects sendMessage() (or legacy followup())
+ * before it can cold-resume a
  * retired member. Catalog rows deliberately remain discoverable: Harness rc.8
  * uses the direct-child catalog to authorize historical transcript reads and
  * `openSubagent()`, so filtering those rows would make an archived member's
@@ -691,9 +743,27 @@ export function interruptMember(ctx: Context, captain: Agent, childId: string): 
  * untouched while the followup boundary still prevents further model turns.
  */
 export function installRetiredMemberGuard(ctx: Context, stateDir: string): void {
-  const runtime = ctx.subagents
+  type MessageContent = MemberMessageContent
+  type SendMessage = (parent: Agent, childId: SessionId, content: MessageContent, options: { signal: AbortSignal }) => Promise<unknown>
+  type LegacyFollowup = (parent: Agent, targetId: SessionId, content: MessageContent, options: { source: { kind: 'plugin'; plugin: string }; signal: AbortSignal }) => Promise<unknown>
+  const runtime = ctx.subagents as unknown as { sendMessage?: SendMessage; followup?: LegacyFollowup }
   ctx.effect(() => {
+    const sendMessage = runtime.sendMessage
+    if (typeof sendMessage === 'function') {
+      const guardedSendMessage = async (parent: Agent, childId: SessionId, content: MessageContent, options: { signal: AbortSignal }) => {
+        const retired = await readRetiredMemberIds(join(parent.session.header.cwd ?? process.cwd(), stateDir))
+        if (retired.has(childId)) {
+          throw new SubagentError('AgentTeams member "' + childId + '" was retired and cannot be resumed', 'NOT_RESUMABLE')
+        }
+        return sendMessage.call(runtime, parent, childId, content, options)
+      }
+      runtime.sendMessage = guardedSendMessage
+      return () => {
+        if (runtime.sendMessage === guardedSendMessage) runtime.sendMessage = sendMessage
+      }
+    }
     const followup = runtime.followup
+    if (typeof followup !== 'function') return () => undefined
     const guardedFollowup: typeof runtime.followup = async (parent, childId, content, options) => {
       const retired = await readRetiredMemberIds(join(parent.session.header.cwd ?? process.cwd(), stateDir))
       if (retired.has(childId)) {
