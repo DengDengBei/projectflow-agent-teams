@@ -72,6 +72,60 @@ const WEB_SERVER_KEYS = ['webServer', 'httpServer'] as const
 /** Workspace registry service key candidates, newest first. */
 const WORKSPACE_KEYS = ['workspaceRegistry', 'workspace'] as const
 
+type RegisteredWorkspace = ReturnType<WorkspaceRegistry['list']>[number]
+type SessionHeaderLike = {
+  cwd?: string
+  createdAt?: number
+  updatedAt?: number
+}
+type SessionPersistenceLike = {
+  list: () => Promise<readonly SessionHeaderLike[]>
+}
+
+function normalizeWorkspacePath(value: string): string {
+  return value.trim().replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase()
+}
+
+function workspaceContainsSessionCwd(workspacePath: string, sessionCwd: string): boolean {
+  const workspace = normalizeWorkspacePath(workspacePath)
+  const cwd = normalizeWorkspacePath(sessionCwd)
+  return cwd === workspace || cwd.startsWith(workspace + '/')
+}
+
+/**
+ * WorkspaceRegistry.list() is a persistent registration order, not an active
+ * workspace signal. Use the newest persisted session whose cwd belongs to a
+ * registered workspace instead; this also keeps the route safe when the
+ * registry has more than one workspace and the first one has no project.
+ */
+async function resolveActiveWorkspace(
+  workspaces: readonly RegisteredWorkspace[],
+  sessionPersistence: SessionPersistenceLike | undefined,
+): Promise<RegisteredWorkspace | undefined> {
+  if (sessionPersistence === undefined) return undefined
+
+  try {
+    const sessions = await sessionPersistence.list()
+    const candidates = sessions
+      .filter((session) => typeof session.cwd === 'string' && session.cwd.trim() !== '')
+      .map((session, index) => ({ session, index }))
+      .sort((left, right) => {
+        const leftTime = Math.max(left.session.updatedAt ?? 0, left.session.createdAt ?? 0)
+        const rightTime = Math.max(right.session.updatedAt ?? 0, right.session.createdAt ?? 0)
+        return rightTime - leftTime || left.index - right.index
+      })
+
+    for (const { session } of candidates) {
+      const matchingWorkspace = workspaces.find((workspace) => workspaceContainsSessionCwd(workspace.path, session.cwd!))
+      if (matchingWorkspace !== undefined) return matchingWorkspace
+    }
+  } catch {
+    // A transient persistence failure must not make the web route fail.
+  }
+
+  return undefined
+}
+
 export const name = 'agent-teams'
 export const inject = ['tools', 'llm', 'subagents', 'systemPrompt', 'agents', 'approval']
 
@@ -296,9 +350,12 @@ export function apply(ctx: Context, config: Config): void {
         }
         const requestedWorkspace = new URL(req.url ?? '/', 'http://localhost').searchParams.get('workspace')?.trim()
         const registeredWorkspaces = workspaceRegistry.list()
+        const sessionPersistence = ctx.get('sessionPersistence') as SessionPersistenceLike | undefined
+        const activeWorkspace = requestedWorkspace === 'active'
+          ? await resolveActiveWorkspace(registeredWorkspaces, sessionPersistence)
+          : undefined
         const selectedWorkspaces = requestedWorkspace === 'active'
-          // WorkspaceRegistry keeps the newest/current workspace first.
-          ? registeredWorkspaces.slice(0, 1)
+          ? activeWorkspace === undefined ? [] : [activeWorkspace]
           : requestedWorkspace === null || requestedWorkspace === ''
             ? registeredWorkspaces
             : registeredWorkspaces.filter((workspace) => workspace.title === requestedWorkspace || workspace.path === requestedWorkspace)
